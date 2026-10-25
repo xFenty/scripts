@@ -1,10 +1,9 @@
 -- Player List GUI
 -- Right Ctrl to toggle
--- Features: Spectate, Teleport, ESP, Color Picker
+-- Features: Spectate, Teleport, ESP with Names, Color Picker
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
@@ -31,18 +30,6 @@ local function round(obj, r)
     Instance.new("UICorner", obj).CornerRadius = UDim.new(0, r or 6)
 end
 
-local function label(parent, props)
-    local l = Instance.new("TextLabel")
-    l.BackgroundTransparency = 1
-    l.TextColor3 = Color3.new(1, 1, 1)
-    l.TextSize = 13
-    l.Font = Enum.Font.Gotham
-    l.TextXAlignment = Enum.TextXAlignment.Left
-    for k, v in pairs(props) do l[k] = v end
-    l.Parent = parent
-    return l
-end
-
 -- Main GUI
 local Gui = Instance.new("ScreenGui")
 Gui.Name = "PlayerListGui"
@@ -57,7 +44,6 @@ Main.BorderSizePixel = 0
 Main.Parent = Gui
 round(Main, 10)
 
--- Accent border (updates with color picker)
 local Border = Instance.new("UIStroke", Main)
 Border.Color = accentColor
 Border.Thickness = 1.5
@@ -70,14 +56,18 @@ Bar.BorderSizePixel = 0
 Bar.Parent = Main
 round(Bar, 10)
 
-local Title = label(Bar, {
-    Size = UDim2.new(1, -10, 1, 0),
-    Position = UDim2.new(0, 10, 0, 0),
-    Font = Enum.Font.GothamBold,
-    Text = "Players"
-})
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -10, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.TextSize = 13
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Text = "Players"
+Title.Parent = Bar
 
--- Dragging logic
+-- Dragging
 local dragging, dragStart, startPos
 
 Bar.InputBegan:Connect(function(input)
@@ -101,7 +91,7 @@ UIS.InputChanged:Connect(function(input)
     end
 end)
 
--- Color picker bar (below top bar)
+-- Color picker bar
 local ColorFrame = Instance.new("Frame")
 ColorFrame.Size = UDim2.new(1, -10, 0, 20)
 ColorFrame.Position = UDim2.new(0, 5, 0, 34)
@@ -110,7 +100,6 @@ ColorFrame.BorderSizePixel = 0
 ColorFrame.Parent = Main
 round(ColorFrame, 4)
 
--- Gradient on the color bar
 local gradient = Instance.new("UIGradient", ColorFrame)
 gradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
@@ -122,25 +111,27 @@ gradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
 })
 
--- Color picker indicator
 local ColorIndicator = Instance.new("Frame")
 ColorIndicator.Size = UDim2.new(0, 3, 1, 0)
 ColorIndicator.BackgroundColor3 = Color3.new(1, 1, 1)
 ColorIndicator.BorderSizePixel = 0
 ColorIndicator.Parent = ColorFrame
 
--- Pick color when clicking the gradient bar
 local pickingColor = false
 
+-- Apply accent color to everything
 local function applyColor(color)
     accentColor = color
     Border.Color = color
 
-    -- Update all ESP highlights
     for _, obj in pairs(espObjects) do
-        if obj and obj.Parent then
-            obj.FillColor = color
-            obj.OutlineColor = color
+        if obj.highlight and obj.highlight.Parent then
+            obj.highlight.FillColor = color
+            obj.highlight.OutlineColor = color
+        end
+        if obj.label and obj.label.Parent then
+            obj.label.TextLabel.TextColor3 = color
+            obj.label.TextLabel.TextStrokeColor3 = color
         end
     end
 end
@@ -149,7 +140,6 @@ local function pickColor(input)
     local x = math.clamp((input.Position.X - ColorFrame.AbsolutePosition.X) / ColorFrame.AbsoluteSize.X, 0, 1)
     ColorIndicator.Position = UDim2.new(x, -1, 0, 0)
 
-    -- Sample color from the gradient at position x
     local keypoints = {
         {0, Color3.fromRGB(255, 0, 0)},
         {0.15, Color3.fromRGB(255, 255, 0)},
@@ -209,26 +199,70 @@ local function createESP(player)
     local function apply(character)
         if not character then return end
 
-        -- Remove old highlight if it exists
+        -- Clean up old ESP
         if espObjects[player.UserId] then
-            espObjects[player.UserId]:Destroy()
+            if espObjects[player.UserId].highlight then
+                espObjects[player.UserId].highlight:Destroy()
+            end
+            if espObjects[player.UserId].label then
+                espObjects[player.UserId].label:Destroy()
+            end
         end
 
+        -- Highlight outline
         local highlight = Instance.new("Highlight")
-        highlight.Name = "ESP_" .. player.UserId
+        highlight.Name = "ESP_HL_" .. player.UserId
         highlight.FillColor = accentColor
         highlight.FillTransparency = 0.7
         highlight.OutlineColor = accentColor
         highlight.OutlineTransparency = 0.3
         highlight.Adornee = character
         highlight.Parent = character
-        espObjects[player.UserId] = highlight
+
+        -- Name label above head
+        local head = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "ESP_Name_" .. player.UserId
+        billboard.Adornee = head
+        billboard.Size = UDim2.new(0, 100, 0, 30)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = head
+
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = player.DisplayName
+        nameLabel.TextColor3 = accentColor
+        nameLabel.TextStrokeTransparency = 0.5
+        nameLabel.TextStrokeColor3 = accentColor
+        nameLabel.TextScaled = true
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.Parent = billboard
+
+        -- Distance label below name
+        local distLabel = Instance.new("TextLabel")
+        distLabel.Size = UDim2.new(1, 0, 0.5, 0)
+        distLabel.Position = UDim2.new(0, 0, 1, 0)
+        distLabel.BackgroundTransparency = 1
+        distLabel.TextColor3 = Color3.new(1, 1, 1)
+        distLabel.TextStrokeTransparency = 0.5
+        distLabel.TextScaled = true
+        distLabel.Font = Enum.Font.Gotham
+        distLabel.Parent = billboard
+
+        -- Adjust billboard size to fit both labels
+        billboard.Size = UDim2.new(0, 120, 0, 40)
+
+        espObjects[player.UserId] = {
+            highlight = highlight,
+            label = billboard,
+            distLabel = distLabel,
+        }
     end
 
-    -- Apply to current character
     apply(player.Character)
 
-    -- Reapply when they respawn
     player.CharacterAdded:Connect(function(char)
         task.wait(0.5)
         if espEnabled then
@@ -239,10 +273,34 @@ end
 
 local function removeESP(player)
     if espObjects[player.UserId] then
-        espObjects[player.UserId]:Destroy()
+        if espObjects[player.UserId].highlight then
+            espObjects[player.UserId].highlight:Destroy()
+        end
+        if espObjects[player.UserId].label then
+            espObjects[player.UserId].label:Destroy()
+        end
         espObjects[player.UserId] = nil
     end
 end
+
+-- Update distance labels every frame while ESP is on
+game:GetService("RunService").Heartbeat:Connect(function()
+    if not espEnabled then return end
+
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    for userId, obj in pairs(espObjects) do
+        if obj.distLabel and obj.distLabel.Parent then
+            local player = Players:GetPlayerByUserId(userId)
+            local tRoot = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if tRoot then
+                local dist = math.floor((myRoot.Position - tRoot.Position).Magnitude)
+                obj.distLabel.Text = dist .. " studs"
+            end
+        end
+    end
+end)
 
 local function toggleESP()
     espEnabled = not espEnabled
@@ -264,7 +322,7 @@ end
 
 ESPBtn.MouseButton1Click:Connect(toggleESP)
 
--- Scroll frame for player list
+-- Scroll frame
 local ScrollFrame = Instance.new("ScrollingFrame")
 ScrollFrame.Size = UDim2.new(1, -10, 1, -92)
 ScrollFrame.Position = UDim2.new(0, 5, 0, 86)
@@ -322,7 +380,6 @@ local function createEntry(player)
 
     Instance.new("UIListLayout", Entry).Padding = UDim.new(0, 2)
 
-    -- Name button
     local NameBtn = Instance.new("TextButton")
     NameBtn.Size = UDim2.new(1, 0, 0, 32)
     NameBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
@@ -338,7 +395,6 @@ local function createEntry(player)
     NameBtn.MouseEnter:Connect(function() NameBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end)
     NameBtn.MouseLeave:Connect(function() NameBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45) end)
 
-    -- Actions frame (hidden)
     local Actions = Instance.new("Frame", Entry)
     Actions.Size = UDim2.new(1, 0, 0, 28)
     Actions.BackgroundTransparency = 1
@@ -348,7 +404,6 @@ local function createEntry(player)
     row.FillDirection = Enum.FillDirection.Horizontal
     row.Padding = UDim.new(0, 4)
 
-    -- Spectate button
     local SpecBtn = Instance.new("TextButton")
     SpecBtn.Size = UDim2.new(0.5, -2, 0, 26)
     SpecBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -364,7 +419,6 @@ local function createEntry(player)
     SpecBtn.MouseLeave:Connect(function() SpecBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40) end)
     SpecBtn.MouseButton1Click:Connect(function() spectate(player) end)
 
-    -- Teleport button
     local TpBtn = Instance.new("TextButton")
     TpBtn.Size = UDim2.new(0.5, -2, 0, 26)
     TpBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -380,7 +434,6 @@ local function createEntry(player)
     TpBtn.MouseLeave:Connect(function() TpBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40) end)
     TpBtn.MouseButton1Click:Connect(function() teleportTo(player) end)
 
-    -- Expand/collapse
     NameBtn.MouseButton1Click:Connect(function()
         if expandedEntry and expandedEntry ~= Entry then
             local old = expandedEntry:FindFirstChild("Frame")
@@ -393,13 +446,9 @@ local function createEntry(player)
         expandedEntry = Actions.Visible and Entry or nil
     end)
 
-    -- If ESP is on, apply it to this new player
-    if espEnabled then
-        createESP(player)
-    end
+    if espEnabled then createESP(player) end
 end
 
--- Remove entry
 local function removeEntry(player)
     local entry = ScrollFrame:FindFirstChild("Entry_" .. player.UserId)
     if entry then
@@ -410,7 +459,6 @@ local function removeEntry(player)
     if spectating == player then resetCamera() end
 end
 
--- Update title with count
 local function updateTitle()
     Title.Text = "Players [" .. #Players:GetPlayers() .. "]"
 end
@@ -431,9 +479,7 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 
 -- Initialize
-for _, p in ipairs(Players:GetPlayers()) do
-    createEntry(p)
-end
+for _, p in ipairs(Players:GetPlayers()) do createEntry(p) end
 updateTitle()
 
 Players.PlayerAdded:Connect(function(p)
